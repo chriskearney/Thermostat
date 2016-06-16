@@ -22,9 +22,6 @@ public class Client {
 
     public Client() throws UsbException {
         this.usbDevice = findDevice(UsbHostManager.getUsbServices().getRootUsbHub(), VENDOR_ID, PRODUCT_ID);
-        if (usbDevice == null) {
-            throw new RuntimeException("Unable to find USB Temperature Device.");
-        }
     }
 
     public UsbDevice findDevice(UsbHub hub, short vendorId, short productId) {
@@ -36,7 +33,7 @@ public class Client {
                 if (device != null) return device;
             }
         }
-        return null;
+        throw new RuntimeException("Unable to find USB Temperature Device.");
     }
 
     public int getTemperature() throws UsbException {
