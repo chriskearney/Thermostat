@@ -1,10 +1,11 @@
 package com.comandante.thermostat;
 
 import javax.usb.*;
+import java.nio.ByteBuffer;
 import java.util.List;
 
 
-public class Client  {
+public class Client {
 
     private static final short VENDOR_ID = 0x0c45;
     private static final short PRODUCT_ID = 0x7401;
@@ -15,30 +16,22 @@ public class Client  {
     private static final int CONFIG_NO = 1;
     private static final int TIMEOUT = 5000;
 
-    //    'temp': b'\x01\x80\x33\x01\x00\x00\x00\x00',
-    private static final byte[] TEMPERATURE_COMMAND = new byte[] { 0x01, (byte) 0x80, 0x33, 0x01, 0x00, 0x00, 0x00, 0x00 };
-    // 'ini1': b'\x01\x82\x77\x01\x00\x00\x00\x00',
-    private static final byte[] INIT_ONE_COMMAND = new byte[] { 0x01, (byte) 0x82, 0x77, 0x01, 0x00, 0x00, 0x00, 0x00 };
-    //    'ini2': b'\x01\x86\xff\x01\x00\x00\x00\x00',
-    private static final byte[] INIT_TWO_COMMAND = new byte[] { 0x01, (byte) 0x86, (byte) 0xff, 0x01, 0x00, 0x00, 0x00, 0x00 };
+    private static final byte[] TEMPERATURE_COMMAND = new byte[]{(byte) 0x01, (byte) 0x80, (byte) 0x33, (byte) 0x01, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00};
+
+    private final UsbDevice usbDevice;
 
     public Client() throws UsbException {
-        UsbDevice device = findDevice(UsbHostManager.getUsbServices().getRootUsbHub(), VENDOR_ID, PRODUCT_ID);
-        UsbConfiguration configuration = device.getUsbConfiguration((byte) 1);
-        UsbInterface iface = configuration.getUsbInterface((byte) 1);
-        iface.claim(usbInterface -> true);
-        sendMessage(device, TEMPERATURE_COMMAND);
-
+        this.usbDevice = findDevice(UsbHostManager.getUsbServices().getRootUsbHub(), VENDOR_ID, PRODUCT_ID);
+        if (usbDevice == null) {
+            throw new RuntimeException("Unable to find USB Temperature Device.");
+        }
     }
 
-    public UsbDevice findDevice(UsbHub hub, short vendorId, short productId)
-    {
-        for (UsbDevice device : (List<UsbDevice>) hub.getAttachedUsbDevices())
-        {
+    public UsbDevice findDevice(UsbHub hub, short vendorId, short productId) {
+        for (UsbDevice device : (List<UsbDevice>) hub.getAttachedUsbDevices()) {
             UsbDeviceDescriptor desc = device.getUsbDeviceDescriptor();
             if (desc.idVendor() == vendorId && desc.idProduct() == productId) return device;
-            if (device.isUsbHub())
-            {
+            if (device.isUsbHub()) {
                 device = findDevice((UsbHub) device, vendorId, productId);
                 if (device != null) return device;
             }
@@ -46,31 +39,33 @@ public class Client  {
         return null;
     }
 
-    private static void read(UsbDevice device, UsbInterface iface) throws UsbException {
-        UsbEndpoint inEndpoint =
-                iface.getUsbEndpoint((byte) ENDPOINT);
+    public int getTemperature() throws UsbException {
+        UsbConfiguration configuration = usbDevice.getUsbConfiguration((byte) 1);
+        UsbInterface iface = configuration.getUsbInterface((byte) 1);
+        iface.claim(usbInterface -> true);
+        sendMessage(usbDevice, TEMPERATURE_COMMAND);
+        return readTempSensor(iface);
+    }
+
+    private static int readTempSensor(UsbInterface iface) throws UsbException {
+        UsbEndpoint inEndpoint = iface.getUsbEndpoint((byte) ENDPOINT);
         UsbPipe inPipe = inEndpoint.getUsbPipe();
         inPipe.open();
         try {
-            byte[] headerBytes = new byte[REQ_INT_LEN];
-            int received = inPipe.syncSubmit(headerBytes);
-            System.out.println("Response received:" + received);
+            byte[] sensorBytes = new byte[REQ_INT_LEN];
+            int received = inPipe.syncSubmit(sensorBytes);
+            if (received == 0) {
+                throw new RuntimeException("Unable to retrieve data from usb temperature sensor.");
+            }
+            return (int) sensorBytes[2];
         } finally {
             inPipe.close();
         }
     }
 
-
-    public static void sendMessage(UsbDevice device, byte[] message)
-            throws UsbException
-    {
-        UsbControlIrp irp = device.createUsbControlIrp(
-                (byte) (UsbConst.REQUESTTYPE_TYPE_CLASS |
-                        UsbConst.REQUESTTYPE_RECIPIENT_INTERFACE), (byte) 0x09,
-                (short) 2, (short) 1);
+    private static void sendMessage(UsbDevice device, byte[] message) throws UsbException {
+        UsbControlIrp irp = device.createUsbControlIrp((byte) 0x21, (byte) 0x09, (short) 0x0200, (short) 0x01);
         irp.setData(message);
         device.syncSubmit(irp);
     }
-
-
 }
